@@ -31,6 +31,12 @@ SECTIONS
         *(.text*)
         *(.rodata)
         *(.rodata*)
+        *(.init_array*)
+        KEEP(*(SORT(.init_array.*)))
+        KEEP(*(.init_array))
+        *(.fini_array*)
+        KEEP(*(SORT(.fini_array.*)))
+        KEEP(*(.fini_array))
         . = ALIGN(4);
         _etext = .;
     } >FLASH
