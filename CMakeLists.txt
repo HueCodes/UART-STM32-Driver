@@ -28,6 +28,8 @@ add_executable(uart_demo
     src/startup.cpp
     src/main.cpp
     src/uart.cpp
+    src/rcc.cpp
+    src/syscalls.cpp
 )
 
 target_link_options(uart_demo PRIVATE
@@ -41,4 +43,10 @@ add_custom_command(TARGET uart_demo POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:uart_demo> ${CMAKE_BINARY_DIR}/uart_demo.bin
     COMMAND ${CMAKE_SIZE}              $<TARGET_FILE:uart_demo>
     COMMENT "Generating HEX and BIN"
+)
+
+add_custom_target(flash
+    COMMAND openocd -f interface/stlink.cfg -f target/stm32f4x.cfg
+            -c "program uart_demo.hex verify reset exit"
+    DEPENDS uart_demo
 )
