@@ -1,4 +1,5 @@
 build/
+.DS_Store
 *.bin
 *.hex
 *.map
@@ -9,3 +10,4 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+NOTES.md
