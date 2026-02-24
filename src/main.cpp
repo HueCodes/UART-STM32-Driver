@@ -1,4 +1,5 @@
 #include "uart.hpp"
+#include "rcc.hpp"
 
 // Simple echo demo: every byte received on USART2 is sent straight back.
 //
@@ -7,16 +8,17 @@
 
 int main()
 {
-    Uart uart;   // 115200 8N1 on USART2 / PA2+PA3
+    rcc_init();
+
+    Uart& uart = uart_instance();
     uart.init();
 
     uart.send("UART echo ready\r\n");
 
     for (;;) {
-        uint8_t byte = uart.receive();   // block until a character arrives
-        uart.send(byte);                 // echo it back
+        uint8_t byte = uart.receive();
+        uart.send(byte);
 
-        // Also echo a newline after carriage-return for terminal comfort
         if (byte == '\r') {
             uart.send('\n');
         }
