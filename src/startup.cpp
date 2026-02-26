@@ -67,8 +67,10 @@ WEAK_ALIAS(I2C2_EV_IRQHandler);
 WEAK_ALIAS(I2C2_ER_IRQHandler);
 WEAK_ALIAS(SPI1_IRQHandler);
 WEAK_ALIAS(SPI2_IRQHandler);
-WEAK_ALIAS(USART1_IRQHandler);
-WEAK_ALIAS(USART2_IRQHandler);
+// USART1_IRQHandler, USART2_IRQHandler, and USART6_IRQHandler are defined
+// as real (non-weak) functions in uart.cpp. Declaring them as weak aliases
+// here would cause the linker to silently discard the real definitions.
+// They are therefore omitted from this list.
 WEAK_ALIAS(EXTI15_10_IRQHandler);
 WEAK_ALIAS(RTC_Alarm_IRQHandler);
 WEAK_ALIAS(OTG_FS_WKUP_IRQHandler);
@@ -85,7 +87,7 @@ WEAK_ALIAS(OTG_FS_IRQHandler);
 WEAK_ALIAS(DMA2_Stream5_IRQHandler);
 WEAK_ALIAS(DMA2_Stream6_IRQHandler);
 WEAK_ALIAS(DMA2_Stream7_IRQHandler);
-WEAK_ALIAS(USART6_IRQHandler);
+// USART6_IRQHandler: defined in uart.cpp (see note above near USART1/2).
 WEAK_ALIAS(I2C3_EV_IRQHandler);
 WEAK_ALIAS(I2C3_ER_IRQHandler);
 WEAK_ALIAS(FPU_IRQHandler);
