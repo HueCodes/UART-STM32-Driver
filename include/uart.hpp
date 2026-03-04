@@ -33,8 +33,14 @@
  * All buffers are statically allocated. No exceptions. No RTOS dependency.
  */
 
-// Forward declaration; definition is in uart.cpp.
+// USART_TypeDef is defined by the CMSIS device header (firmware builds, where
+// stm32f4xx.h is included before this header) or by the test mock (which sets
+// the same include guard). The forward declaration below is only emitted when
+// neither has been included yet, keeping the header self-contained for
+// standalone static analysis or documentation tools.
+#ifndef __STM32F4xx_H
 struct USART_TypeDef;
+#endif
 
 // ---------------------------------------------------------------------------
 // Status codes
@@ -115,7 +121,7 @@ public:
      *         already been initialised, or if the peripheral clock is off.
      * @note Must be called once before any send() or receive() call.
      */
-    bool init();
+    [[nodiscard]] bool init();
 
     /**
      * @brief Enqueue one byte for transmission (non-blocking).
@@ -124,7 +130,7 @@ public:
      * @return true if the byte was enqueued; false if the TX buffer was full.
      * @note Enables the TXE interrupt so the ISR drains the buffer.
      */
-    bool send(uint8_t byte);
+    [[nodiscard]] bool send(uint8_t byte);
 
     /**
      * @brief Enqueue a raw buffer for transmission (non-blocking).
@@ -161,12 +167,12 @@ public:
      * @p timeout_ms milliseconds elapse as measured by the 1 ms SysTick.
      *
      * @param[out] out        Receives the byte on success.
-     * @param      timeout_ms Maximum wait in milliseconds. Pass 0 for an
-     *                        immediate poll with no blocking.
+     * @param      timeout_ms Maximum wait in milliseconds. Pass 0 for a
+     *                        single non-blocking poll attempt.
      * @return true if a byte was received; false on timeout.
      * @pre init() must have been called successfully.
      */
-    bool receive(uint8_t& out, uint32_t timeout_ms = 1000);
+    [[nodiscard]] bool receive(uint8_t& out, uint32_t timeout_ms = 1000);
 
     /**
      * @brief Non-blocking poll: true if the RX buffer is non-empty.
@@ -187,6 +193,25 @@ public:
      * @return false on timeout; @p buf contains whatever was received so far.
      */
     bool receive_line(char* buf, size_t max_len, uint32_t timeout_ms = 1000);
+
+    /**
+     * @brief Block until all queued TX bytes have been physically sent.
+     *
+     * Waits for the TX ring buffer to drain (all bytes handed to the hardware
+     * shift register), then waits for the TC (Transmission Complete) flag to
+     * indicate the last bit has left the pin.
+     *
+     * Useful before a soft-reset, sleep, or RS-485 direction change, where
+     * cutting power or flipping the direction pin while the shift register is
+     * still active would corrupt the last byte on the wire.
+     *
+     * @param timeout_ms Maximum wait in milliseconds. Returns even if the
+     *                   buffer has not fully drained (e.g. TX stuck due to
+     *                   hardware fault).
+     * @return true if the buffer drained and TC was observed before timeout.
+     * @pre init() must have been called successfully.
+     */
+    [[nodiscard]] bool flush_tx(uint32_t timeout_ms = 1000);
 
     /**
      * @brief Read and clear hardware error flags (ORE / FE / NE).

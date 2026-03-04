@@ -1,6 +1,12 @@
 #include "rcc.hpp"
 #include <stm32f4xx.h>
 
+// CMSIS declares SystemCoreClock as extern in system_stm32f4xx.h. The
+// definition normally lives in system_stm32f4xx.c (STM32Cube boilerplate).
+// We are not using that file, so we define it here. It is initialised to the
+// HSI reset value (16 MHz) and updated by rcc_init() after the PLL locks.
+uint32_t SystemCoreClock = 16000000u;
+
 // Timeout loop counts for ~5 ms of waiting at the HSI frequency (16 MHz).
 // With -Os the loop body compiles to roughly 2-3 instructions; the constants
 // are deliberately generous so a marginal crystal still has time to settle.

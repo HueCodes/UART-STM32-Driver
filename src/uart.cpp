@@ -1,5 +1,8 @@
-#include "uart.hpp"
+// stm32f4xx.h must be included before uart.hpp so that USART_TypeDef is
+// fully defined (CMSIS uses an anonymous-struct typedef which cannot be
+// forward-declared; see the comment in uart.hpp around __STM32F4xx_H).
 #include <stm32f4xx.h>
+#include "uart.hpp"
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -117,8 +120,12 @@ void Uart::configure_gpio(const PeriphInfo& p)
     gpio->OSPEEDR &= ~((0x3u << (tx * 2u)) | (0x3u << (rx * 2u)));
     gpio->OSPEEDR |=  ((0x2u << (tx * 2u)) | (0x2u << (rx * 2u)));
 
-    // No pull (TX drives the line; RX relies on far-end driver).
+    // TX: no pull (actively driven push-pull).
+    // RX: pull-up so the line sits high when the far end is disconnected,
+    //     preventing spurious framing/noise errors on a floating input.
+    //     ST RM0368 §19.3.2 recommends pull-up for the USART RX pin.
     gpio->PUPDR &= ~((0x3u << (tx * 2u)) | (0x3u << (rx * 2u)));
+    gpio->PUPDR |=  (0x1u << (rx * 2u));   // pull-up on RX
 
     // Alternate function register. Pins 0-7 use AFR[0], pins 8-15 use AFR[1].
     uint32_t tx_bank = tx / 8u;
@@ -405,6 +412,27 @@ Uart::Stats Uart::get_stats() const
 void Uart::reset_stats()
 {
     stats_ = Stats{};
+}
+
+// ---------------------------------------------------------------------------
+// flush_tx()
+// ---------------------------------------------------------------------------
+
+bool Uart::flush_tx(uint32_t timeout_ms)
+{
+    uint32_t start = s_tick_ms;
+
+    // Wait for the TX ring buffer to drain (ISR pops bytes into the shift reg).
+    while (!tx_buf_.empty()) {
+        if ((s_tick_ms - start) >= timeout_ms) return false;
+    }
+
+    // Wait for the shift register to finish sending the last byte.
+    // TC goes low when DR is written and high when the last stop bit leaves.
+    while (!(usart_->SR & USART_SR_TC)) {
+        if ((s_tick_ms - start) >= timeout_ms) return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
