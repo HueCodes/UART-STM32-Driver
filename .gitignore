@@ -1,5 +1,10 @@
 build/
+build_host/
 .DS_Store
+
+# Local-only docs (not for the repo)
+HARDWARE_SETUP.md
+INTERVIEW.md
 *.bin
 *.hex
 *.map
