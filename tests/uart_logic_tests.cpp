@@ -4,14 +4,16 @@
 // so no real hardware or cross-compiler is needed.
 //
 // What is tested:
-//   - uart_compute_brr(): BRR accuracy for common baud rates
-//   - Uart::init():        peripheral clock and GPIO register bits
-//   - Uart::send():        non-blocking send, buffer-full behaviour, stats
+//   - uart_compute_brr():   BRR accuracy for common baud rates
+//   - Uart::init():         peripheral clock and GPIO register bits
+//   - Uart::send():         non-blocking send, buffer-full behaviour, stats
 //   - Uart::get_and_clear_errors(): flag reading and stats counters
-//   - Uart::irq_handler(): RXNE and TXE paths
-//   - Uart::Stats:         counter increments
+//   - Uart::irq_handler():  RXNE and TXE paths
+//   - Uart::Stats:          counter increments
+//   - Uart::receive_line(): line accumulation, CR stripping, null termination
 
 #include <catch2/catch_test_macros.hpp>
+#include <string_view>
 // Mock CMSIS headers must be included before uart.hpp so that USART_TypeDef
 // and the peripheral macros (USART1, USART2, GPIOA, RCC, etc.) are in scope.
 #include "stm32f4xx.h"
@@ -71,7 +73,7 @@ TEST_CASE("Uart::init() enables GPIOA clock for USART2", "[init]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     REQUIRE((RCC_mock.AHB1ENR & RCC_AHB1ENR_GPIOAEN) != 0u);
 }
 
@@ -79,7 +81,7 @@ TEST_CASE("Uart::init() enables USART2 APB1 clock", "[init]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     REQUIRE((RCC_mock.APB1ENR & RCC_APB1ENR_USART2EN) != 0u);
 }
 
@@ -87,7 +89,7 @@ TEST_CASE("Uart::init() sets GPIOA PA2/PA3 to alternate function mode", "[init]"
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     // MODER bits [5:4] = 10 (PA2) and [7:6] = 10 (PA3)
     uint32_t moder = GPIOA_mock.MODER;
     REQUIRE(((moder >> (2u * 2u)) & 0x3u) == 0x2u);  // PA2
@@ -98,7 +100,7 @@ TEST_CASE("Uart::init() sets AF7 for PA2 and PA3", "[init]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     // PA2 -> AFR[0] bits [11:8]; PA3 -> AFR[0] bits [15:12].
     REQUIRE(((GPIOA_mock.AFR[0] >> (4u * 2u)) & 0xFu) == 7u);  // PA2
     REQUIRE(((GPIOA_mock.AFR[0] >> (4u * 3u)) & 0xFu) == 7u);  // PA3
@@ -108,7 +110,7 @@ TEST_CASE("Uart::init() enables UE, TE, RE, and RXNEIE", "[init]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     uint32_t cr1 = USART2_mock.CR1;
     REQUIRE((cr1 & USART_CR1_UE)     != 0u);
     REQUIRE((cr1 & USART_CR1_TE)     != 0u);
@@ -123,7 +125,7 @@ TEST_CASE("Uart::init() sets BRR for 115200 baud at 84 MHz", "[init]")
     // With mock CFGR=0 ppre1 bits = 000 < 4 so div=1, pclk=84 MHz.
     // BRR = (84000000 + 57600) / 115200 = 730.
     Uart u{USART2, 115200u};
-    u.init();
+    REQUIRE(u.init());
     // Accept a range to account for mock vs real clock tree
     REQUIRE(USART2_mock.BRR > 0u);
 }
@@ -155,7 +157,7 @@ TEST_CASE("Uart::init() configures even parity", "[init][parity]")
 {
     reset_mocks();
     Uart u{USART2, 115200u, Uart::Parity::Even};
-    u.init();
+    REQUIRE(u.init());
     REQUIRE((USART2_mock.CR1 & USART_CR1_PCE) != 0u);
     REQUIRE((USART2_mock.CR1 & USART_CR1_PS)  == 0u);
 }
@@ -164,7 +166,7 @@ TEST_CASE("Uart::init() configures odd parity", "[init][parity]")
 {
     reset_mocks();
     Uart u{USART2, 115200u, Uart::Parity::Odd};
-    u.init();
+    REQUIRE(u.init());
     REQUIRE((USART2_mock.CR1 & USART_CR1_PCE) != 0u);
     REQUIRE((USART2_mock.CR1 & USART_CR1_PS)  != 0u);
 }
@@ -173,7 +175,7 @@ TEST_CASE("Uart::init() configures no parity", "[init][parity]")
 {
     reset_mocks();
     Uart u{USART2, 115200u, Uart::Parity::None};
-    u.init();
+    REQUIRE(u.init());
     REQUIRE((USART2_mock.CR1 & USART_CR1_PCE) == 0u);
 }
 
@@ -181,7 +183,7 @@ TEST_CASE("Uart::init() configures two stop bits", "[init][stopbits]")
 {
     reset_mocks();
     Uart u{USART2, 115200u, Uart::Parity::None, Uart::StopBits::Two};
-    u.init();
+    REQUIRE(u.init());
     uint32_t stop = (USART2_mock.CR2 >> USART_CR2_STOP_Pos) & 0x3u;
     REQUIRE(stop == 0x2u);
 }
@@ -190,7 +192,7 @@ TEST_CASE("Uart::init() configures one stop bit by default", "[init][stopbits]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     uint32_t stop = (USART2_mock.CR2 >> USART_CR2_STOP_Pos) & 0x3u;
     REQUIRE(stop == 0u);
 }
@@ -211,7 +213,7 @@ TEST_CASE("Uart::send(byte) returns true and enables TXEIE", "[send]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     REQUIRE(u.send(0x41u));
     REQUIRE((USART2_mock.CR1 & USART_CR1_TXEIE) != 0u);
     REQUIRE(u.get_stats().bytes_sent == 1u);
@@ -221,7 +223,7 @@ TEST_CASE("Uart::send(byte) returns false when TX buffer is full", "[send]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     // Fill all 255 usable slots (RingBuffer<uint8_t,256> -> 255 slots).
     int sent = 0;
     while (u.send(static_cast<uint8_t>(sent & 0xFF))) { ++sent; }
@@ -233,7 +235,7 @@ TEST_CASE("Uart::send(str) returns bytes enqueued", "[send]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     size_t n = u.send("hello");
     REQUIRE(n == 5u);
     REQUIRE(u.get_stats().bytes_sent == 5u);
@@ -243,9 +245,9 @@ TEST_CASE("Uart::send(data, len) stops at buffer full and returns partial count"
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     // Pre-fill 254 slots.
-    for (int i = 0; i < 254; ++i) u.send(static_cast<uint8_t>(i));
+    for (int i = 0; i < 254; ++i) (void)u.send(static_cast<uint8_t>(i));
 
     // Send a 5-byte string: only 1 more slot is available.
     size_t n = u.send("ABCDE", 5u);
@@ -260,7 +262,7 @@ TEST_CASE("get_and_clear_errors: no error flags -> Errors all false", "[errors]"
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     USART2_mock.SR = 0u;
     auto e = u.get_and_clear_errors();
     REQUIRE_FALSE(e.overrun);
@@ -272,7 +274,7 @@ TEST_CASE("get_and_clear_errors: ORE flag detected and counted", "[errors]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     USART2_mock.SR = USART_SR_ORE;
     auto e = u.get_and_clear_errors();
     REQUIRE(e.overrun);
@@ -283,7 +285,7 @@ TEST_CASE("get_and_clear_errors: FE flag detected and counted", "[errors]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     USART2_mock.SR = USART_SR_FE;
     auto e = u.get_and_clear_errors();
     REQUIRE(e.framing);
@@ -294,7 +296,7 @@ TEST_CASE("get_and_clear_errors: NE flag detected and counted", "[errors]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
     USART2_mock.SR = USART_SR_NE;
     auto e = u.get_and_clear_errors();
     REQUIRE(e.noise);
@@ -309,7 +311,7 @@ TEST_CASE("irq_handler: RXNE pushes byte into RX buffer", "[isr]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
 
     // Simulate hardware: RXNE=1, RXNEIE=1, DR=0x42.
     USART2_mock.SR  = USART_SR_RXNE;
@@ -326,7 +328,7 @@ TEST_CASE("irq_handler: RX overflow increments counter and does not crash", "[is
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
+    REQUIRE(u.init());
 
     // Fill the RX buffer to capacity (255 bytes) via repeated ISR calls.
     USART2_mock.CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
@@ -347,9 +349,9 @@ TEST_CASE("irq_handler: TXE drains TX buffer byte by byte", "[isr]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
-    u.send(static_cast<uint8_t>('A'));
-    u.send(static_cast<uint8_t>('B'));
+    REQUIRE(u.init());
+    REQUIRE(u.send(static_cast<uint8_t>('A')));
+    REQUIRE(u.send(static_cast<uint8_t>('B')));
 
     // Simulate TXE interrupt firing twice.
     USART2_mock.SR  = USART_SR_TXE;
@@ -377,8 +379,8 @@ TEST_CASE("reset_stats() zeroes all counters", "[stats]")
 {
     reset_mocks();
     Uart u{USART2};
-    u.init();
-    u.send(0x01u);
+    REQUIRE(u.init());
+    REQUIRE(u.send(0x01u));
 
     // Force an overrun.
     USART2_mock.SR = USART_SR_ORE;
@@ -394,4 +396,115 @@ TEST_CASE("reset_stats() zeroes all counters", "[stats]")
     REQUIRE(after.bytes_sent     == 0u);
     REQUIRE(after.overrun_errors == 0u);
     REQUIRE(after.bytes_received == 0u);
+}
+
+// ---------------------------------------------------------------------------
+// GPIO PUPDR: RX pin pull-up
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Uart::init() sets pull-up on PA3 (RX) and no pull on PA2 (TX)", "[init][gpio]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+    // PA2 = TX: PUPDR[5:4] must be 00 (no pull)
+    REQUIRE(((GPIOA_mock.PUPDR >> (2u * 2u)) & 0x3u) == 0x0u);
+    // PA3 = RX: PUPDR[7:6] must be 01 (pull-up)
+    REQUIRE(((GPIOA_mock.PUPDR >> (3u * 2u)) & 0x3u) == 0x1u);
+}
+
+// ---------------------------------------------------------------------------
+// Uart::receive_line()
+//
+// Note: s_tick_ms is a static inside uart.cpp and does not increment on the
+// host (no SysTick). Tests that exercise the non-timeout path use a large
+// timeout_ms so that (0 - 0) >= timeout_ms is never true, and pre-load the
+// RX ring buffer by calling irq_handler() with the mock DR set.
+// ---------------------------------------------------------------------------
+
+// Helper: inject one byte into u's RX buffer by simulating an RXNE interrupt.
+static void inject_rx(Uart& u, uint8_t byte)
+{
+    USART2_mock.SR  = USART_SR_RXNE;
+    USART2_mock.DR  = byte;
+    u.irq_handler();
+}
+
+TEST_CASE("receive_line: returns true when line ends with \\n", "[receive_line]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+
+    for (uint8_t c : {'h', 'e', 'l', 'l', 'o', '\n'}) inject_rx(u, c);
+
+    char buf[32] = {};
+    REQUIRE(u.receive_line(buf, sizeof(buf), 1000000u));
+    REQUIRE(std::string_view{buf} == "hello");
+}
+
+TEST_CASE("receive_line: strips \\r before \\n", "[receive_line]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+
+    for (uint8_t c : {'h', 'i', '\r', '\n'}) inject_rx(u, c);
+
+    char buf[32] = {};
+    REQUIRE(u.receive_line(buf, sizeof(buf), 1000000u));
+    REQUIRE(std::string_view{buf} == "hi");
+}
+
+TEST_CASE("receive_line: always null-terminates", "[receive_line]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+
+    // Inject more bytes than the buffer holds (max_len=4 -> 3 chars + NUL).
+    for (uint8_t c : {'A', 'B', 'C', 'D', '\n'}) inject_rx(u, c);
+
+    char buf[4] = {0x7F, 0x7F, 0x7F, 0x7F};
+    // Buffer fills before the newline: returns false but must null-terminate.
+    (void)u.receive_line(buf, sizeof(buf), 1000000u);
+    REQUIRE(buf[3] == '\0');
+}
+
+TEST_CASE("receive_line: returns false and partial content when buffer fills", "[receive_line]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+
+    // max_len=4 -> capacity for 3 data chars. Send 5 chars then newline.
+    for (uint8_t c : {'1', '2', '3', '4', '5', '\n'}) inject_rx(u, c);
+
+    char buf[4] = {};
+    bool ok = u.receive_line(buf, sizeof(buf), 1000000u);
+    REQUIRE_FALSE(ok);                          // buffer full before newline
+    REQUIRE(std::string_view{buf} == "123");    // first 3 chars captured
+}
+
+TEST_CASE("receive_line: returns false immediately for zero max_len", "[receive_line]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+
+    char buf[1] = {};
+    REQUIRE_FALSE(u.receive_line(buf, 0u, 1000000u));
+}
+
+TEST_CASE("receive_line: empty line (just \\n) yields empty string", "[receive_line]")
+{
+    reset_mocks();
+    Uart u{USART2};
+    REQUIRE(u.init());
+
+    inject_rx(u, '\n');
+
+    char buf[32] = {};
+    REQUIRE(u.receive_line(buf, sizeof(buf), 1000000u));
+    REQUIRE(buf[0] == '\0');
 }

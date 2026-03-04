@@ -1,5 +1,10 @@
 #pragma once
 
+// Define the same include guard as the real CMSIS stm32f4xx.h so that
+// uart.hpp's conditional forward declaration of USART_TypeDef is skipped.
+// The mock provides USART_TypeDef as a named struct below.
+#define __STM32F4xx_H
+
 // Minimal mock of STM32F4xx CMSIS headers for host-side unit testing.
 // Only the register fields and bit masks used by uart.cpp / rcc.cpp are defined.
 // Values are chosen to match the real hardware where the test logic cares about
