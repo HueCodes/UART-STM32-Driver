@@ -17,6 +17,55 @@ extern "C" void __libc_init_array();
 extern "C" {
     void Reset_Handler();
     void Default_Handler();
+    void HardFault_Handler();
+
+    // Defined as strong (non-weak) symbols in uart.cpp.
+    // Forward declarations here so the vector table initialiser below can
+    // take their address without a WEAK_ALIAS (which would make the linker
+    // prefer the Default_Handler alias over the real definition).
+    void USART1_IRQHandler();
+    void USART2_IRQHandler();
+    void USART6_IRQHandler();
+}
+
+// ---------------------------------------------------------------------------
+// HardFault register capture
+//
+// When a HardFault fires, HardFault_Handler() captures the Cortex-M4 fault
+// status registers here before spinning. Attach a debugger, halt, and inspect
+// this struct to diagnose the fault:
+//
+//   CFSR  — Configurable Fault Status (MemManage/BusFault/UsageFault details)
+//   HFSR  — HardFault Status (forced/vecttbl flags)
+//   MMFAR — MemManage Fault Address (valid when CFSR.MMARVALID=1)
+//   BFAR  — BusFault Address        (valid when CFSR.BFARVALID=1)
+//   sp    — Stacked SP at fault entry
+// ---------------------------------------------------------------------------
+
+struct FaultRegisters {
+    uint32_t cfsr;   ///< SCB->CFSR  0xE000ED28
+    uint32_t hfsr;   ///< SCB->HFSR  0xE000ED2C
+    uint32_t mmfar;  ///< SCB->MMFAR 0xE000ED34
+    uint32_t bfar;   ///< SCB->BFAR  0xE000ED38
+    uint32_t sp;     ///< SP value when the fault occurred
+};
+
+volatile FaultRegisters g_fault_regs{};
+
+extern "C" void HardFault_Handler()
+{
+    // Read SCB fault status registers using their absolute MMIO addresses.
+    // We avoid including core_cm4.h here to keep startup self-contained.
+    g_fault_regs.cfsr  = *reinterpret_cast<volatile uint32_t*>(0xE000ED28u);
+    g_fault_regs.hfsr  = *reinterpret_cast<volatile uint32_t*>(0xE000ED2Cu);
+    g_fault_regs.mmfar = *reinterpret_cast<volatile uint32_t*>(0xE000ED34u);
+    g_fault_regs.bfar  = *reinterpret_cast<volatile uint32_t*>(0xE000ED38u);
+
+    // Capture the current stack pointer (MSP after CPU pushed the exception
+    // frame, pointing at the bottom of the hardware-saved register set).
+    __asm volatile ("mov %0, sp" : "=r"(g_fault_regs.sp));
+
+    for (;;) {}  // halt — inspect g_fault_regs in debugger
 }
 
 #define WEAK_ALIAS(name) \
@@ -24,7 +73,7 @@ extern "C" {
 
 // ARM Cortex-M4 system exception handlers
 WEAK_ALIAS(NMI_Handler);
-WEAK_ALIAS(HardFault_Handler);
+// HardFault_Handler: defined above as a strong (non-weak) symbol.
 WEAK_ALIAS(MemManage_Handler);
 WEAK_ALIAS(BusFault_Handler);
 WEAK_ALIAS(UsageFault_Handler);
